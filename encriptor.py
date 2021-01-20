@@ -35,17 +35,10 @@ def file_decrypt(key, encrypted_file, decrypted_file):
     return decrypted
 
 
-#    with open(decrypted_file, 'wb') as file:
-
-#        file.write(decrypted)
-
-
 # if __name__ == '__main__':
-# encriptor = Encryptor()
 #    mykey = key_create()
 #    key_write(mykey, "mykey.key")
-# loaded_key = key_load('mykey.key')
+#    loaded_key = key_load('mykey.key')
 #    aux = file_decrypt(loaded_key, 'sansw.conf', 'sansw.conf')
 #    print(aux)
-# file_encrypt(loaded_key, 'ftp_credentials.conf', 'ftp_credentials.conf')
-# file_decrypt(loaded_key, 'sansw.conf', 'sansw.conf')
+#    file_encrypt(loaded_key, 'ftp_credentials.conf', 'ftp_credentials.conf')
