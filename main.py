@@ -44,77 +44,29 @@ class RemoteClient:
         response = stdout.readlines()
         return response
 
-    def reformat_list_into_table(self, switch_name, datetime, output_list):
-        _count = 0
-        _count_slot_port_avg = 0
-        list = output_list
-        header1 = []
-        header2 = []
-        header3 = []
-        list_port_slot = []
-        list_port_average = []
-        list_join_slot_average = []
-        for i in list:
-            if re.search("\t", i):
-                aux = i.replace('\t', "")
-                aux = aux.replace('\n', "")
-                aux = aux.replace('Total', "")
-                aux = re.sub(r'  *', ' ', aux)
-                header1.append(aux.split(' ')[1:17])
-            if re.search("slot ", i):
-                aux = i.replace('slot ', "")
-                header2.append(aux.split(":")[0])
-            if re.search("slot", i):
-                aux = i.replace('slot ', "")
-                aux = aux.replace('\n', "")
-                aux = re.sub(r'.: *', '', aux)
-                aux = re.sub(r'  *', ' ', aux)
-                header3.append(aux.split(" ")[0:16])
-        for i in header3:
-            for e in i:
-                if 'k' in e or 'm' in e:
-                    list_port_average.append("{};{}".format(e[:-1], e[-1:]))
-                else:
-                    list_port_average.append("{};b".format(e))
-        for i in header2:
-            for e in header1:
-                for j in e:
-                    list_port_slot.append("{}/{}".format(i, j))
-                    _count += 1
-                if _count == 16:
-                    _count = 0
-                    del header1[0]
-                    break
 
-        for i in list_port_slot:
-            for e in list_port_average:
-                list_join_slot_average.append("{};{};{};{}".format(datetime, switch_name, i, e))
-                _count_slot_port_avg += 1
-                if _count_slot_port_avg == 1:
-                    _count_slot_port_avg = 0
-                    del list_port_average[0]
-                    break
-        return list_join_slot_average
 
     def reformat_switchshow_into_table(self, switchshow):
         switchshow_table = []
         count = 0;
         aux_table = []
         for i in switchshow:
+            #code here fabric ID '"switchshow" on FID {}:'.format(), get variable from function parameter
             aux = i.replace('switchState:\tOnline   \n', "")
+            aux = aux.replace('---------------------------------------------------', '')
+            aux = aux.replace('"switchshow" on FID 57:', '')
+            aux = aux.replace('"switchshow" on FID 58:', '')
             aux = re.sub(r'\t *', ';', aux)
             aux = re.sub(r'   *', ';', aux)
             aux = re.sub(r'   *', ';', aux)
             aux = re.sub(r' ;', ';', aux)
+            aux = re.sub(r'^ ', ';', aux)
+            aux = re.sub(r'^;', '', aux)
+            aux = re.sub(r';$', '', aux)
             aux = re.sub(r' \n', '', aux)
             aux = re.sub(r'\n', '', aux)
             if aux != '':
-                aux_table.append(aux.split(";"))
-        for i in aux_table:
-            if len(i) == 11:
-                switchshow_table.append(i[1:])
-            else:
-                switchshow_table.append(i)
+                switchshow_table.append(aux.split(";"))
         return switchshow_table
 
     def get_wwn_from_port(self, port_info_list):
@@ -150,8 +102,6 @@ class RemoteClient:
 
 
 if __name__ == '__main__':
-    today = datetime.datetime.now()
-    date_time = today.strftime("%Y-%m-%d %H:%M:%S")
     output_list = []
     sansw_list = []
     ftp_list = []
@@ -161,6 +111,8 @@ if __name__ == '__main__':
     wwn_list = []
     alias_list_aux = []
     report_table = []
+    slot_port = ""
+    text_to_csv = ""
 
     loaded_key = key_load('mykey.key')
 
@@ -170,25 +122,60 @@ if __name__ == '__main__':
         if i != '':
             sansw_list.append(i.split(';'))
     for i in sansw_list:
+        today = datetime.datetime.now()
+        date_time = today.strftime("%Y-%m-%d %H:%M:%S")
         sansw_name = i[0]
         user = i[1]
         passwd = i[2]
         ip_addr = i[3]
+        vendor = i[4]
+        sansw_type = i[5]
+        virtual_fid = 0
+        if len(i) == 7:
+            virtual_fid = i[6]
+
         remote = RemoteClient(ip_addr, user, passwd)
         remote.connection()
-        output_list = remote.execute_unix_commands("switchshow | grep -i Online")
-        switchshow_table = remote.reformat_switchshow_into_table(output_list)
-        for i in switchshow_table:
-            slot_port = "{}/{}".format(i[1], i[2])
-            portshow_table = remote.execute_unix_commands("portshow {}".format(slot_port))
-            wwn_list = remote.get_wwn_from_port(portshow_table)
-            for e in wwn_list:
-                alias_list_aux = remote.execute_unix_commands("nodefind {} | grep Alias".format(''.join(e)))
-                if len(alias_list_aux) != 0:
-                    alias_list.append(remote.get_text_from_alias(alias_list_aux))
-            report_table.append("{},{},{},{}".format(date_time, sansw_name, ','.join(i), ' '.join(alias_list)))
-            alias_list[:] = []
-        remote.disconnect()
+        if virtual_fid != 0:
+            output_list = remote.execute_unix_commands('fosexec --fid {} -cmd "switchshow | grep -e Online -e No_Light | grep -v switchState | grep -v FCIP"'.format(virtual_fid))
+            switchshow_table = remote.reformat_switchshow_into_table(output_list)
+            print(switchshow_table)
+            for e in switchshow_table:
+                if sansw_type == 'SANDIR':
+                    slot_port = "{}/{}".format(e[1], e[2])
+                    text_to_csv = "{},{},{}".format(date_time, sansw_name, vendor)
+                else:
+                    slot_port = "{}".format(e[0])
+                    text_to_csv = "{},{},{},".format(date_time, sansw_name, vendor)
+                portshow_table = remote.execute_unix_commands('fosexec --fid {} -cmd "portshow {}"'.format(virtual_fid, slot_port))
+                wwn_list = remote.get_wwn_from_port(portshow_table)
+                for g in wwn_list:
+                    alias_list_aux = remote.execute_unix_commands('fosexec --fid {} -cmd "nodefind {} | grep Alias"'.format(virtual_fid, ''.join(g)))
+                    if len(alias_list_aux) != 0:
+                        alias_list.append(remote.get_text_from_alias(alias_list_aux))
+                report_table.append("{},{},{}".format(text_to_csv, ','.join(e), ' '.join(alias_list)))
+                print("{},{},{}".format(text_to_csv, ','.join(e), ' '.join(alias_list)))
+                alias_list[:] = []
+            remote.disconnect()
+        else:
+            output_list = remote.execute_unix_commands("switchshow | grep -e Online -e No_Light | grep -v switchState | grep -v FCIP")
+            switchshow_table = remote.reformat_switchshow_into_table(output_list)
+            for i in switchshow_table:
+                if sansw_type == 'SANDIR':
+                    slot_port = "{}/{}".format(i[1], i[2])
+                    text_to_csv = "{},{},{}".format(date_time, sansw_name, vendor)
+                else:
+                    slot_port = "{}".format(i[0])
+                    text_to_csv = "{},{},{},".format(date_time, sansw_name, vendor)
+                portshow_table = remote.execute_unix_commands("portshow {}".format(slot_port))
+                wwn_list = remote.get_wwn_from_port(portshow_table)
+                for e in wwn_list:
+                    alias_list_aux = remote.execute_unix_commands("nodefind {} | grep Alias".format(''.join(e)))
+                    if len(alias_list_aux) != 0:
+                        alias_list.append(remote.get_text_from_alias(alias_list_aux))
+                report_table.append("{},{},{}".format(text_to_csv, ','.join(i), ' '.join(alias_list)))
+                print("{},{},{}".format(text_to_csv, ','.join(i), ' '.join(alias_list)))
+                alias_list[:] = []
+            remote.disconnect()
 
     remote.create_report_file(report_table)
-
